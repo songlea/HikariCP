@@ -111,6 +111,7 @@ abstract class PoolBase
       this.validationTimeout = config.getValidationTimeout();
       this.lastConnectionFailure = new AtomicReference<>();
 
+      // 初始化dataSource
       initializeDataSource();
    }
 

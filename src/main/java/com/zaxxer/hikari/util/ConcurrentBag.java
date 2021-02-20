@@ -72,10 +72,10 @@ public class ConcurrentBag<T extends IConcurrentBagEntry> implements AutoCloseab
 
    public interface IConcurrentBagEntry
    {
-      int STATE_NOT_IN_USE = 0;
-      int STATE_IN_USE = 1;
-      int STATE_REMOVED = -1;
-      int STATE_RESERVED = -2;
+      int STATE_NOT_IN_USE = 0; // 未使用状态
+      int STATE_IN_USE = 1; // 使用状态
+      int STATE_REMOVED = -1; // 删除状态
+      int STATE_RESERVED = -2; // 保留状态
 
       boolean compareAndSet(int expectState, int newState);
       void setState(int newState);
@@ -94,8 +94,11 @@ public class ConcurrentBag<T extends IConcurrentBagEntry> implements AutoCloseab
     */
    public ConcurrentBag(final IBagStateListener listener)
    {
+      // 回调监听器
       this.listener = listener;
+      // ThreadLocal是否使用WeakReferences
       this.weakThreadLocals = useWeakThreadLocals();
+
 
       this.handoffQueue = new SynchronousQueue<>(true);
       this.waiters = new AtomicInteger();
@@ -120,6 +123,7 @@ public class ConcurrentBag<T extends IConcurrentBagEntry> implements AutoCloseab
    public T borrow(long timeout, final TimeUnit timeUnit) throws InterruptedException
    {
       // Try the thread-local list first
+      // 先从threadList中获取,倒序遍历状态:STATE_NOT_IN_USE并设置STATE_IN_USE状态成功的bagEntry
       final List<Object> list = threadList.get();
       for (int i = list.size() - 1; i >= 0; i--) {
          final Object entry = list.remove(i);
@@ -130,12 +134,12 @@ public class ConcurrentBag<T extends IConcurrentBagEntry> implements AutoCloseab
          }
       }
 
-      // Otherwise, scan the shared list ... then poll the handoff queue
-      final int waiting = waiters.incrementAndGet();
+      // Otherwise, scan the shared list ... then poll the handoff queue(否则,扫描共享列表,然后poll handoff队列)
+      final int waiting = waiters.incrementAndGet(); // sharedList中请求bagEntry等待者数量加一
       try {
          for (T bagEntry : sharedList) {
             if (bagEntry.compareAndSet(STATE_NOT_IN_USE, STATE_IN_USE)) {
-               // If we may have stolen another waiter's connection, request another bag add.
+               // If we may have stolen another waiter's connection, request another bag add.(可能偷取另一个等待者的连接,要求再添加一个bagEntry)
                if (waiting > 1) {
                   listener.addBagItem(waiting - 1);
                }
@@ -143,11 +147,13 @@ public class ConcurrentBag<T extends IConcurrentBagEntry> implements AutoCloseab
             }
          }
 
+         // sharedList中没有状态:STATE_NOT_IN_USE的bagEntry,添加一个
          listener.addBagItem(waiting);
 
          timeout = timeUnit.toNanos(timeout);
          do {
             final long start = currentTime();
+            // handoff 队列中获取bagEntry(首个元素从队列中弹出,如果队列是空的,就返回null)
             final T bagEntry = handoffQueue.poll(timeout, NANOSECONDS);
             if (bagEntry == null || bagEntry.compareAndSet(STATE_NOT_IN_USE, STATE_IN_USE)) {
                return bagEntry;
@@ -159,7 +165,7 @@ public class ConcurrentBag<T extends IConcurrentBagEntry> implements AutoCloseab
          return null;
       }
       finally {
-         waiters.decrementAndGet();
+         waiters.decrementAndGet(); // sharedList中请求bagEntry完成等待者数量减一
       }
    }
 
@@ -188,6 +194,7 @@ public class ConcurrentBag<T extends IConcurrentBagEntry> implements AutoCloseab
          }
       }
 
+      // 将归还的bagEntry放到threadList中
       final List<Object> threadLocalList = threadList.get();
       if (threadLocalList.size() < 50) {
          threadLocalList.add(weakThreadLocals ? new WeakReference<>(bagEntry) : bagEntry);
@@ -208,8 +215,10 @@ public class ConcurrentBag<T extends IConcurrentBagEntry> implements AutoCloseab
 
       sharedList.add(bagEntry);
 
-      // spin until a thread takes it or none are waiting
+      // spin until a thread takes it or none are waiting(自旋直到线程占用或没有任何等待)
+      // bagEntry状态为STATE_NOT_IN_USE 且 放到handoffQueue队列
       while (waiters.get() > 0 && bagEntry.getState() == STATE_NOT_IN_USE && !handoffQueue.offer(bagEntry)) {
+         // 使当前线程由执行状态变成为就绪状态(Running->Runnable),让出cpu时间,在下一个线程执行时候,此线程有可能被执行,也有可能没有被执行
          Thread.yield();
       }
    }
@@ -225,16 +234,19 @@ public class ConcurrentBag<T extends IConcurrentBagEntry> implements AutoCloseab
     */
    public boolean remove(final T bagEntry)
    {
+      // bagEntry的状态从STATE_IN_USE或STATE_RESERVED => STATE_REMOVED 且 未关闭
       if (!bagEntry.compareAndSet(STATE_IN_USE, STATE_REMOVED) && !bagEntry.compareAndSet(STATE_RESERVED, STATE_REMOVED) && !closed) {
          LOGGER.warn("Attempt to remove an object from the bag that was not borrowed or reserved: {}", bagEntry);
          return false;
       }
 
+      // 从CopyOnWriteArrayList中移除这个bagEntry
       final boolean removed = sharedList.remove(bagEntry);
       if (!removed && !closed) {
          LOGGER.warn("Attempt to remove an object from the bag that does not exist: {}", bagEntry);
       }
 
+      // 从当前ThreadLocal中的List移除这个bagEntry
       threadList.get().remove(bagEntry);
 
       return removed;
@@ -291,6 +303,7 @@ public class ConcurrentBag<T extends IConcurrentBagEntry> implements AutoCloseab
     * @param bagEntry the item to reserve
     * @return true if the item was able to be reserved, false otherwise
     */
+   // 使bagEntry状态:STATE_NOT_IN_USE->STATE_RESERVED
    public boolean reserve(final T bagEntry)
    {
       return bagEntry.compareAndSet(STATE_NOT_IN_USE, STATE_RESERVED);
@@ -302,12 +315,13 @@ public class ConcurrentBag<T extends IConcurrentBagEntry> implements AutoCloseab
     *
     * @param bagEntry the item to unreserve
     */
+   // 使bagEntry状态:STATE_RESERVED->STATE_NOT_IN_USE
    @SuppressWarnings("SpellCheckingInspection")
    public void unreserve(final T bagEntry)
    {
       if (bagEntry.compareAndSet(STATE_RESERVED, STATE_NOT_IN_USE)) {
-         // spin until a thread takes it or none are waiting
-         while (waiters.get() > 0 && !handoffQueue.offer(bagEntry)) {
+         // spin until a thread takes it or none are waiting(自旋直到线程占用或没有任何等待)
+         while (waiters.get() > 0 && !handoffQueue.offer(bagEntry)) { // 放到handoffQueue队列
             Thread.yield();
          }
       }

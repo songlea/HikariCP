@@ -103,15 +103,19 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
     *
     * @param config a HikariConfig instance
     */
+   // HikariPool池初始化:在HikariDataSource的构造函数中创建
    public HikariPool(final HikariConfig config)
    {
+      // 属性设置与初始化dataSource
       super(config);
 
+      // 并发容器,核心设计是使用ThreadLocal避免部分并发问题
       this.connectionBag = new ConcurrentBag<>(this);
       this.suspendResumeLock = config.isAllowPoolSuspension() ? new SuspendResumeLock() : SuspendResumeLock.FAUX_LOCK;
 
       this.houseKeepingExecutorService = initializeHouseKeepingExecutorService();
 
+      // 如果配置了initializationFailFast,检查是否具有数据库连接
       checkFailFast();
 
       if (config.getMetricsTrackerFactory() != null) {
@@ -130,9 +134,12 @@ public final class HikariPool extends PoolBase implements HikariPoolMXBean, IBag
       final int maxPoolSize = config.getMaximumPoolSize();
       LinkedBlockingQueue<Runnable> addConnectionQueue = new LinkedBlockingQueue<>(maxPoolSize);
       this.addConnectionQueueReadOnlyView = unmodifiableCollection(addConnectionQueue);
+      // 添加Connection的线程池
       this.addConnectionExecutor = createThreadPoolExecutor(addConnectionQueue, poolName + " connection adder", threadFactory, new ThreadPoolExecutor.DiscardOldestPolicy());
+      // 关闭Connection的线程池
       this.closeConnectionExecutor = createThreadPoolExecutor(maxPoolSize, poolName + " connection closer", threadFactory, new ThreadPoolExecutor.CallerRunsPolicy());
 
+      // 连接泄露任务线程工厂
       this.leakTaskFactory = new ProxyLeakTaskFactory(config.getLeakDetectionThreshold(), houseKeepingExecutorService);
 
       this.houseKeeperTask = houseKeepingExecutorService.scheduleWithFixedDelay(new HouseKeeper(), 100L, housekeepingPeriodMs, MILLISECONDS);

@@ -51,6 +51,12 @@ public final class CodaHaleMetricsTracker implements IMetricsTracker
    {
       this.poolName = poolName;
       this.registry = registry;
+      /*
+      统计某个函数被调用的频率（TPS），使用Meters。
+      统计某个方法的耗时，使用Histograms。--注意时间是以纳秒为单位的
+      既要统计某个方法的TPS又要统计其耗时时，使用Timers。--注意时间是以纳秒为单位的
+      counter用于计数,gauge只用于记录瞬时值
+       */
       this.connectionObtainTimer = registry.timer(MetricRegistry.name(poolName, METRIC_CATEGORY, METRIC_NAME_WAIT));
       this.connectionUsage = registry.histogram(MetricRegistry.name(poolName, METRIC_CATEGORY, METRIC_NAME_USAGE));
       this.connectionCreation = registry.histogram(MetricRegistry.name(poolName, METRIC_CATEGORY, METRIC_NAME_CONNECT));

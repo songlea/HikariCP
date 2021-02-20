@@ -44,15 +44,29 @@ public final class JavassistProxyFactory
    private static String genDirectory = "";
 
    public static void main(String... args) throws Exception {
+      // ClassPool对象是一个CtClass对象的容器,一个CtClass对象被构建后,它被记录在ClassPool中
       classPool = new ClassPool();
       classPool.importPackage("java.sql");
       classPool.appendClassPath(new LoaderClassPath(JavassistProxyFactory.class.getClassLoader()));
 
       if (args.length > 0) {
+         // 生成文件的目录
          genDirectory = args[0];
       }
 
       // Cast is not needed for these
+      /*
+         方法的特殊变量
+         1、$0指this,$1代表方法参数的第一个参数,$2代表方法参数的第二个参数,以此类推,$N代表是方法参数的第N个
+         2、$args指的是方法所有参数的数组,类似Object[],如果参数中含有基本类型则会转成其包装类型,$args[0]对应的是$1
+         3、$$是方法所有参数的简写,主要用在方法调用上
+         4、$cflow意思为控制流(control flow),是一个只读变量,值为一个方法调用的深度
+         5、$r:方法返回值的类型,用于匹配表达式,如果返回值为基本类型的包装类型则自动转成基本类型,如果返回值为void,则该值是null
+         6、$w:代表包装类型,用于匹配表达式
+         7、$_:代表的是方法的返回值
+         8、$sig:指的是方法参数的Class类型数组,数组的顺序为参数的顺序
+         9、$class:当前this的Class类型
+       */
       String methodBody = "{ try { return delegate.method($$); } catch (SQLException e) { throw checkException(e); } }";
       generateProxyClass(Connection.class, ProxyConnection.class.getName(), methodBody);
       generateProxyClass(Statement.class, ProxyStatement.class.getName(), methodBody);

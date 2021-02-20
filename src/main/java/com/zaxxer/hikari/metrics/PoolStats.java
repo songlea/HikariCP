@@ -30,11 +30,17 @@ public abstract class PoolStats
    private final AtomicLong reloadAt;
    private final long timeoutMs;
 
+   // 总连接,包括空闲的连接和使用中的连接(idleConnections+activeConnections)
    protected volatile int totalConnections;
+   // 空闲连接数
    protected volatile int idleConnections;
+   // 活跃连接数
    protected volatile int activeConnections;
+   // 正在等待连接的线程数量,排查性能问题时这个指标是一个重要的参考指标,如果等待连接的线程在相当一段时间内数较多,可以考虑扩大数据库连接池的maxSize
    protected volatile int pendingThreads;
+   // 最大连接数,统计指标,统计到目前为止连接的最大数量
    protected volatile int maxConnections;
+   // 最小连接数,统计指标,统计到目前为上连接的最小数量
    protected volatile int minConnections;
 
    public PoolStats(final long timeoutMs)

@@ -75,6 +75,7 @@ public class HikariDataSource extends HikariConfig implements DataSource, Closea
    public HikariDataSource(HikariConfig configuration)
    {
       configuration.validate();
+      // 参数configuration的field被复制到this,参数configuration的修改不会影响当前HikariDataSource,参数configuration可以再初始化另一个HikariDataSource实例
       configuration.copyStateTo(this);
 
       LOGGER.info("{} - Starting...", configuration.getPoolName());
@@ -96,6 +97,7 @@ public class HikariDataSource extends HikariConfig implements DataSource, Closea
          throw new SQLException("HikariDataSource " + this + " has been closed.");
       }
 
+      // fastPathPool不为null说明是通过构造函数HikariDataSource(configuration)创建
       if (fastPathPool != null) {
          return fastPathPool.getConnection();
       }

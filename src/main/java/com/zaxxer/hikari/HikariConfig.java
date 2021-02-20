@@ -61,35 +61,50 @@ public class HikariConfig implements HikariConfigMXBean
    private static boolean unitTest = false;
 
    // Properties changeable at runtime through the HikariConfigMXBean
-   //
-   private volatile String catalog;
+   // 为支持catalog概念的数据库设置默认catalog
+   private volatile String catalog; // Connection的set参数
+   // 此属性控制等待来自池的连接的最大毫秒数,初始化为30秒
    private volatile long connectionTimeout;
+   // 连接将被测试活动的最大超时毫秒数,初始化为5s
    private volatile long validationTimeout;
+   // 此属性控制允许连接在池中处于空闲状态的最长时间(以毫秒为单位),初始化为10分钟
    private volatile long idleTimeout;
+   // 此属性控制在记录表示可能的连接泄漏的消息之前,连接可以从池中移出的时间,值为0表示禁用泄漏检测
    private volatile long leakDetectionThreshold;
+   // 池中连接最长生命周期,默认为30分钟
    private volatile long maxLifetime;
+   // 此属性控制池允许达到的最大大小,包括空闲和正在使用的连接,基本上这个值将决定到数据库后端的最大实际连接数
    private volatile int maxPoolSize;
+   // 池中维护的最小连接数
    private volatile int minIdle;
    private volatile String username;
    private volatile String password;
 
    // Properties NOT changeable at runtime
-   //
    private long initializationFailTimeout;
+   // 该属性设置一个SQL语句,在将每个新连接创建后,将其添加到池中之前执行该语句
    private String connectionInitSql;
+   // 测试连接有效性的查询语句,在某些数据库上,使用JDBC4 Connection.isValid()方法来测试连接有效性可能更有效,因此建议使用
    private String connectionTestQuery;
+   // 生成Connection的JDBC DataSource的类全名
    private String dataSourceClassName;
    private String dataSourceJndiName;
    private String driverClassName;
+   // 自定义的SQLExceptionOverride实现类,由adjudicate()方法返回的枚举来判断连接(SQLException)是否从池中驱逐
    private String exceptionOverrideClassName;
    private String jdbcUrl;
+   // 连接池的名称
    private String poolName;
-   private String schema;
-   private String transactionIsolationName;
-   private boolean isAutoCommit;
-   private boolean isReadOnly;
+   private String schema; // Connection的set参数
+   // 设置默认的隔离级别,比如TRANSACTION_REPEATABLE_READ
+   private String transactionIsolationName; // Connection的set参数
+   // 控制从池中返回的连接的默认自动提交行为,默认为true,见java.sql.Connection#setAutoCommit()
+   private boolean isAutoCommit; // Connection的set参数
+   private boolean isReadOnly; // Connection的set参数
    private boolean isIsolateInternalQueries;
+   // 是否注册到MXBeans,默认为false
    private boolean isRegisterMbeans;
+   // 是否允许池暂停,启用会对性能产生影响,除非必要不要启用它
    private boolean isAllowPoolSuspension;
    private DataSource dataSource;
    private Properties dataSourceProperties;
@@ -100,6 +115,7 @@ public class HikariConfig implements HikariConfigMXBean
    private Object healthCheckRegistry;
    private Properties healthCheckProperties;
 
+   // 存活时间,默认为0(禁用)
    private long keepaliveTime;
 
    private volatile boolean sealed;
@@ -874,6 +890,7 @@ public class HikariConfig implements HikariConfigMXBean
    {
       checkIfSealed();
 
+      // exceptionOverrideClassName校验:用户自定义的SQLExceptionOverride类名,先从当前线程的ClassLoader中加载,若不存在则使用当前类加载器加载
       Class<?> overrideClass = attemptFromContextLoader(exceptionOverrideClassName);
       try {
          if (overrideClass == null) {
@@ -981,9 +998,11 @@ public class HikariConfig implements HikariConfigMXBean
    @SuppressWarnings("StatementWithEmptyBody")
    public void validate()
    {
+      // 连接池名称,若未设置则生成名称
       if (poolName == null) {
          poolName = generatePoolName();
       }
+      // 注册MXBeans时连接池名称不能包含:
       else if (isRegisterMbeans && poolName.contains(":")) {
          throw new IllegalArgumentException("poolName cannot contain ':' when used with JMX");
       }
@@ -994,6 +1013,7 @@ public class HikariConfig implements HikariConfigMXBean
       connectionInitSql = getNullIfEmpty(connectionInitSql);
       connectionTestQuery = getNullIfEmpty(connectionTestQuery);
       transactionIsolationName = getNullIfEmpty(transactionIsolationName);
+      // DataSource配置
       dataSourceClassName = getNullIfEmpty(dataSourceClassName);
       dataSourceJndiName = getNullIfEmpty(dataSourceJndiName);
       driverClassName = getNullIfEmpty(driverClassName);
@@ -1030,6 +1050,7 @@ public class HikariConfig implements HikariConfigMXBean
 
       validateNumerics();
 
+      // Debug模式或junitTest则打印配置信息
       if (LOGGER.isDebugEnabled() || unitTest) {
          logConfiguration();
       }
@@ -1037,56 +1058,68 @@ public class HikariConfig implements HikariConfigMXBean
 
    private void validateNumerics()
    {
+      // 池中连接最长生命周期:不为0且小于30秒,则重置为30分钟
       if (maxLifetime != 0 && maxLifetime < SECONDS.toMillis(30)) {
          LOGGER.warn("{} - maxLifetime is less than 30000ms, setting to default {}ms.", poolName, MAX_LIFETIME);
          maxLifetime = MAX_LIFETIME;
       }
 
       // keepalive time must larger then 30 seconds
+      // 存活时间:若不为0且小于30秒则重置为0(禁用)
       if (keepaliveTime != 0 && keepaliveTime < SECONDS.toMillis(30)) {
          LOGGER.warn("{} - keepaliveTime is less than 30000ms, disabling it.", poolName);
          keepaliveTime = DEFAULT_KEEPALIVE_TIME;
       }
 
       // keepalive time must be less than maxLifetime (if maxLifetime is enabled)
+      // 存活时间:若不为0且大于等于池中连接最长生命周期则重置为0(禁用)
       if (keepaliveTime != 0 && maxLifetime != 0 && keepaliveTime >= maxLifetime) {
          LOGGER.warn("{} - keepaliveTime is greater than or equal to maxLifetime, disabling it.", poolName);
          keepaliveTime = DEFAULT_KEEPALIVE_TIME;
       }
 
+      // 泄露检测阀值:值大于0且非单元测试
       if (leakDetectionThreshold > 0 && !unitTest) {
+         // 泄露检测阀值:小于2秒 或者 大于 池中连接最长生命周期则禁用
          if (leakDetectionThreshold < SECONDS.toMillis(2) || (leakDetectionThreshold > maxLifetime && maxLifetime > 0)) {
             LOGGER.warn("{} - leakDetectionThreshold is less than 2000ms or more than maxLifetime, disabling it.", poolName);
             leakDetectionThreshold = 0;
          }
       }
 
+      // 等待来自池的连接的最大毫秒数:小于250ms,则重置回30s
       if (connectionTimeout < 250) {
          LOGGER.warn("{} - connectionTimeout is less than 250ms, setting to {}ms.", poolName, CONNECTION_TIMEOUT);
          connectionTimeout = CONNECTION_TIMEOUT;
       }
 
+      // 连接将被测试活动的最大超时毫秒数:小于250ms时则重置加5s
       if (validationTimeout < 250) {
          LOGGER.warn("{} - validationTimeout is less than 250ms, setting to {}ms.", poolName, VALIDATION_TIMEOUT);
          validationTimeout = VALIDATION_TIMEOUT;
       }
 
+      // 连接池最大连接数:若小于1则设置为10
       if (maxPoolSize < 1) {
          maxPoolSize = DEFAULT_POOL_SIZE;
       }
 
+      // 池中维护的最小连接数:若小于0 或 大于最大连接数,则设置与最大连接数值一致
       if (minIdle < 0 || minIdle > maxPoolSize) {
          minIdle = maxPoolSize;
       }
 
+      // 连接在池中处于空闲状态的最长时间（以毫秒为单位）+ 1s > 连接最大存活时间 且 维护的最小连接数 < 池最大连接数 则禁用
       if (idleTimeout + SECONDS.toMillis(1) > maxLifetime && maxLifetime > 0 && minIdle < maxPoolSize) {
          LOGGER.warn("{} - idleTimeout is close to or more than maxLifetime, disabling it.", poolName);
          idleTimeout = 0;
       }
+      // 连接在池中处于空闲状态的最长时间 < 10s 且 维护的最小连接数 < 池最大连接数 则设置为10分钟
       else if (idleTimeout != 0 && idleTimeout < SECONDS.toMillis(10) && minIdle < maxPoolSize) {
          LOGGER.warn("{} - idleTimeout is less than 10000ms, setting to default {}ms.", poolName, IDLE_TIMEOUT);
          idleTimeout = IDLE_TIMEOUT;
       }
+      // 维护的最小连接数 与 池最大连接数相同,则 idleTimeout被忽略
       else  if (idleTimeout != IDLE_TIMEOUT && idleTimeout != 0 && minIdle == maxPoolSize) {
          LOGGER.warn("{} - idleTimeout has been set but has no effect because the pool is operating as a fixed size pool.", poolName);
       }
