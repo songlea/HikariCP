@@ -1,16 +1,25 @@
 # EditorConfig is awesome: http://EditorConfig.org
+# 不同的开发人员,不同的编辑器,有不同的编码风格,而EditorConfig就是用来协同团队开发人员之间的代码的风格及样式规范化的一个工具,而.editorconfig正是它的默认配置文件
 
-# top-most EditorConfig file
+# top-most EditorConfig file/告诉EditorConfig插件,这是根文件,不用继续往上查找
 root = true
 
+# 匹配全部的文件
 [**]
+# 结尾换行符,可选"lf"(\n)、"cr"(\r)、"crlf"(\r\n)
 end_of_line = lf
+# 在文件结尾插入新行
 insert_final_newline = true
+# 设置字符集
 charset = utf-8
+# 缩进风格,可选"space"、"tab"
 indent_style = space
+# 删除一行中的前后空格
 trim_trailing_whitespace = true
 
+# 匹配java与xml结尾的文件
 [**.{java,xml}]
+# 缩进的空格数
 indent_size = 3
 
 [**.{yaml,yml}]
